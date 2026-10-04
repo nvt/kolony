@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/colonyos/colonies/pkg/client"
@@ -106,18 +107,7 @@ func (r *BlueprintDefinitionReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	// Build ColonyOS BlueprintDefinition
-	// Args: name, group, version, kind, plural, scope, executorType, functionName
-	cosDef := core.CreateBlueprintDefinition(
-		def.Name,
-		"colony.colonyos.io",
-		"v1",
-		def.Spec.Kind,
-		def.Spec.Kind+"s",
-		colonyName,
-		def.Spec.Handler.ExecutorType,
-		def.Spec.Handler.FunctionName,
-	)
+	cosDef := buildBlueprintDefinition(&def, colonyName)
 
 	var result *core.BlueprintDefinition
 	if def.Status.DefinitionID == "" {
@@ -203,6 +193,31 @@ func (r *BlueprintDefinitionReconciler) getColonyName(ctx context.Context, names
 		return "", err
 	}
 	return string(secret.Data["colonyName"]), nil
+}
+
+// buildBlueprintDefinition converts a BlueprintDefinition CR into its ColonyOS form.
+func buildBlueprintDefinition(def *colonyv1.BlueprintDefinition, colonyName string) *core.BlueprintDefinition {
+	plural := def.Spec.Names.Plural
+	if plural == "" {
+		plural = strings.ToLower(def.Spec.Kind) + "s"
+	}
+	// Args: name, group, version, kind, plural, scope, executorType, functionName
+	cosDef := core.CreateBlueprintDefinition(
+		def.Name,
+		"colony.colonyos.io",
+		"v1",
+		def.Spec.Kind,
+		plural,
+		"Namespaced",
+		def.Spec.Handler.ExecutorType,
+		def.Spec.Handler.FunctionName,
+	)
+	// The server checks colony ownership against the metadata, which the constructor leaves empty.
+	cosDef.Metadata.ColonyName = colonyName
+	if def.Spec.Names.Singular != "" {
+		cosDef.Spec.Names.Singular = def.Spec.Names.Singular
+	}
+	return cosDef
 }
 
 func parsePort(s string) int {
